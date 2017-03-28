@@ -138,7 +138,7 @@ if (~foundECG && ~foundRESP && ~foundPULS && ~foundEXT)
 end
 
 % read in the data
-[SliceMap, UUID1, NumSlices, NumVolumes, FirstTime, LastTime] = readParseFile(fnINFO, 'ACQUISITION_INFO', ExpectedVersion, 0, 0);
+[SliceMap, UUID1, NumSlices, NumVolumes, FirstTime, LastTime, NumEchoes] = readParseFile(fnINFO, 'ACQUISITION_INFO', ExpectedVersion, 0, 0);
 if (LastTime <= FirstTime), error('Last timestamp is not greater than first timestamp, aborting...'); end
 ActualSamples = LastTime - FirstTime + 1;
 ExpectedSamples = ActualSamples + 8; % some padding at the end for worst case EXT sample at last timestamp
@@ -167,13 +167,18 @@ fprintf('Formatting data...\n');
 ACQ = zeros(ExpectedSamples,1,'uint16');
 for v=1:NumVolumes
     for s=1:NumSlices
-        ACQ(SliceMap(1,v,s)+1:SliceMap(2,v,s)+1,1) = 1;
+        for e=1:NumEchoes
+            ACQ(SliceMap(1,v,s,e)+1:SliceMap(2,v,s,e)+1,1) = 1;
+        end
     end
 end
     
 fprintf('\n');
 fprintf('Slices in scan:      %d\n', NumSlices);
 fprintf('Volumes in scan:     %d\n', NumVolumes);
+if (NumEchoes > 1)
+    fprintf('Echoes per slc/vol:  %d\n', NumEchoes);
+end
 fprintf('First timestamp:     %d\n', FirstTime);
 fprintf('Last timestamp:      %d\n', LastTime);
 fprintf('Total scan duration: %d ticks\n', ActualSamples);
@@ -189,7 +194,7 @@ if ((1 == exist('ECG' , 'var')) && ~isempty(ECG)  && nnz(ECG(:,2))), physio.ECG2
 if ((1 == exist('ECG' , 'var')) && ~isempty(ECG)  && nnz(ECG(:,3))), physio.ECG3 = ECG(:,3); end
 if ((1 == exist('ECG' , 'var')) && ~isempty(ECG)  && nnz(ECG(:,4))), physio.ECG4 = ECG(:,4); end
 if ((1 == exist('RESP', 'var')) && ~isempty(RESP) && nnz(RESP))    , physio.RESP = RESP;     end
-if ((1 == exist('RESP', 'var')) && ~isempty(PULS) && nnz(PULS))    , physio.PULS = PULS;     end
+if ((1 == exist('PULS', 'var')) && ~isempty(PULS) && nnz(PULS))    , physio.PULS = PULS;     end
 if ((1 == exist('EXT' , 'var')) && ~isempty(EXT)  && nnz(EXT(:,1))), physio.EXT  = EXT(:,1); end
 if ((1 == exist('EXT' , 'var')) && ~isempty(EXT)  && nnz(EXT(:,2))), physio.EXT2 = EXT(:,2); end
 
@@ -234,6 +239,11 @@ else
     inData = fread(fp, Inf, '*char');
     fclose(fp);
 end
+
+% echoes parameter was not added until R015a, so prefill a default value
+% for compatibility with older data
+NumEchoes = uint16(1);
+varargout{6} = NumEchoes;
 
 % mgetl returns a cell array where each cell is a line of text
 [lines, numlines] = mgetl(inData);
@@ -298,24 +308,42 @@ for curline=1:numlines
             end
             varargout{5} = uint32(str2double(value));
         end
+        if (strcmp(varname, 'NumEchoes'))
+            if (~strcmp(LogDataType, 'ACQUISITION_INFO'))
+                error('Invalid [%s] parameter found.',varname);
+            end
+            NumEchoes = uint16(str2double(value));
+            varargout{6} = NumEchoes;
+        end
         
     elseif (~isempty(line))
-        % this must be data; currently it is always 4 columns so we can
+        % this must be data; currently it is 3-5 columns so we can
         % parse it easily with textscan
-        datacells = textscan(line, '%s %s %s %s');
+        datacells = textscan(line, '%s %s %s %s %s');
 
         if (~isstrprop(datacells{1}{1}(1), 'digit'))
             % if the first column isn't numeric, it is probably the header
         else
             % store data in output array based on the file type
             if (strcmp(LogDataType, 'ACQUISITION_INFO'))
-                if (isempty(arr)), arr = zeros(2,NumVolumes,NumSlices,'uint32'); end
+                if ( (1 ~= exist('NumVolumes', 'var')) || (NumVolumes < 1) || ...
+                     (1 ~= exist('NumSlices' , 'var')) || (NumSlices  < 1) || ...
+                     (1 ~= exist('NumEchoes' , 'var')) || (NumEchoes  < 1) )
+                    error('Failed reading ACQINFO header!');
+                end
+                if (isempty(arr)), arr = zeros(2,NumVolumes,NumSlices,NumEchoes,'uint32'); end
                 curvol    = uint16(str2double(datacells{1}{1})) + 1;
                 curslc    = uint16(str2double(datacells{2}{1})) + 1;
                 curstart  = uint32(str2double(datacells{3}{1}));
                 curfinish = uint32(str2double(datacells{4}{1}));
-                if (arr(:,curvol,curslc)), error('Received duplicate timing data for vol%d slc%d!', curvol, curslc); end
-                arr(:,curvol,curslc) = [curstart curfinish]; %#ok<AGROW>
+                if (size(datacells{5},1))
+                    cureco = uint16(str2double(datacells{5}{1})) + 1;
+                    if (arr(:,curvol,curslc,cureco)), error('Received duplicate timing data for vol%d slc%d eco%d!', curvol, curslc, cureco); end
+                else
+                    cureco = uint16(0) + 1;
+                    if (arr(:,curvol,curslc,cureco)), warning('Received duplicate timing data for vol%d slc%d (ignore for pre-R015a multi-echo data)!', curvol, curslc); end
+                end
+                arr(:,curvol,curslc,cureco) = [curstart curfinish]; %#ok<AGROW>
             else
                 curstart   = uint32(str2double(datacells{1}{1})) - FirstTime + 1;
                 curchannel = datacells{2}{1};
