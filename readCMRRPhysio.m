@@ -3,7 +3,7 @@ function physio = readCMRRPhysio(varargin)
 % readCMRRPhysio.m
 % -------------------------------------------------------------------------
 % Read physiological log files from CMRR MB sequences (>=R013, >=VD13A)
-%   E. Auerbach, CMRR, 2015-6
+%   E. Auerbach, CMRR, 2015-9
 %
 % Usage #1 (individual .log files):
 %    physio = readCMRRPhysio(base_filename, [show_plot]);
@@ -29,7 +29,7 @@ function physio = readCMRRPhysio(varargin)
 %        physio.UUID: unique identifier string for this measurement
 %        physio.SliceMap: [2 x Volumes x Slices] array
 %            (1,:,:) = start time stamp of each volume/slice
-%            (2,:,:) = start time stamp of each volume/slice
+%            (2,:,:) = finish time stamp of each volume/slice
 %        physio.ACQ: [total scan time x 1] array
 %            value = 1 if acquisition is active at this time; 0 if not
 %        physio.ECG1: [total scan time x 1] array
@@ -50,7 +50,7 @@ function physio = readCMRRPhysio(varargin)
 ExpectedVersion = 'EJA_1';
 
 % say hello
-fprintf('\nreadCMRRPhysio: E. Auerbach, CMRR, 2015-6\n\n');
+fprintf('\nreadCMRRPhysio: E. Auerbach, CMRR, 2015-9\n\n');
 
 % check input arguments
 if (nargin < 1) || (nargin > 2)
@@ -330,6 +330,11 @@ for curline=1:numlines
                      (1 ~= exist('NumSlices' , 'var')) || (NumSlices  < 1) || ...
                      (1 ~= exist('NumEchoes' , 'var')) || (NumEchoes  < 1) )
                     error('Failed reading ACQINFO header!');
+                end
+                if (NumVolumes == 1)
+                    % this is probably R016a or earlier diffusion data, where NumVolumes is 1 (incorrect)
+                    NumVolumes = (numlines-11)/(NumSlices*NumEchoes);
+                    warning('Found NumVolumes=1; correcting to %d for R016a and earlier diffusion data!', NumVolumes);
                 end
                 if (isempty(arr)), arr = zeros(2,NumVolumes,NumSlices,NumEchoes,'uint32'); end
                 curvol    = uint16(str2double(datacells{1}{1})) + 1;
