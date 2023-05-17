@@ -3,12 +3,12 @@ function physio = readCMRRPhysio(varargin)
 % readCMRRPhysio.m
 % -------------------------------------------------------------------------
 % Read physiological log files from CMRR MB sequences (>=R013, >=VD13A)
-%   E. Auerbach, CMRR, 2015-9
+%   E. Auerbach, CMRR, 2015-2023
 %
 % Usage #1 (individual .log files):
 %    physio = readCMRRPhysio(base_filename, [show_plot]);
 % Usage #2 (single encoded DICOM file):
-%    physio = readCMRRPhysio(DICOM_filename, [show_plot]);
+%    physio = readCMRRPhysio(DICOM_filename, [show_plot, [output_path]]);
 %
 % This function expects to find either some combination of individual log
 % files (*_ECG.log, *_RESP.log, *_PULS.log, *_EXT.log, *_Info.log)
@@ -19,11 +19,16 @@ function physio = readCMRRPhysio(varargin)
 %    base_filename  = 'Physio_DATE_TIME_UUID'
 %    DICOM_filename = 'XXX.dcm'
 %    show_plot = 1 to graphically display traces after import (optional)
+%    output_path = '/path/to/output/' (optional; path to write .log files)
 %
 % Returns:
 %    Physio traces will be returned for ECG1, ECG2, ECG3, ECG4, RESP, PULS,
 %    EXT1, and EXT2 signals. Only active traces (with nonzero values) will
 %    be returned.
+%
+%    If input is DICOM format and the optional output path is specified,
+%    the extracted log data will be written to disk (this functionality
+%    replaces extractCMRRPhysio.m).
 %
 %    The unit of time is clock ticks (2.5 ms per tick).
 %        physio.UUID: unique identifier string for this measurement
@@ -46,81 +51,112 @@ function physio = readCMRRPhysio(varargin)
 %        physio.EXT2: [total scan time x 1] array
 %            value = 1 if EXT2 signal detected; 0 if not
 
+VersionString = '2023.05.13';
+
 % this is the file format this function expects; must match log file version
 ExpectedVersion = 'EJA_1';
 
 % say hello
-fprintf('\nreadCMRRPhysio: E. Auerbach, CMRR, 2015-9\n\n');
+fprintf('\nreadCMRRPhysio version %s: E. Auerbach, CMRR\n\n', VersionString);
 
 % check input arguments
-if (nargin < 1) || (nargin > 2)
+if (nargin < 1) || (nargin > 3)
+    usage;
     error('Invalid number of inputs.');
 end
 fn = varargin{1};
-if (nargin == 2)
+if (nargin >= 2)
     show_plot = varargin{2};
 else
     show_plot = 0;
+end
+outpath = [];
+if (nargin == 3)
+    outpath = varargin{3};
 end
 
 % first, check if the base is pointing to a DICOM we should extract
 if (2 == exist(fn,'file'))
     fprintf('Found %s\n', fn);
     if (~isdicom(fn))
-        error('Invalid syntax for text log file import!\n    Usage: physio = readCMRRPhysio(base_filename)\n%s', ...
-              '    Inputs: base_filename = ''Physio_DATE_TIME_UUID''');
+        usage;
+        error('Invalid syntax for text log file import!');
     end
     fprintf('Attempting to read CMRR Physio DICOM format file...\n');
     warning('off','images:dicominfo:attrWithSameName');
     dcmInfo = dicominfo(fn);
-    if (~isempty(dcmInfo) && isfield(dcmInfo,'ImageType') && strcmp(dcmInfo.ImageType,'ORIGINAL\PRIMARY\RAWDATA\PHYSIO') ...
-            && isfield(dcmInfo,'Private_7fe1_10xx_Creator') && strcmp(deblank(char(dcmInfo.Private_7fe1_10xx_Creator)),'SIEMENS CSA NON-IMAGE'))
-        np = size(dcmInfo.Private_7fe1_1010,1);
-        rows = dcmInfo.AcquisitionNumber;
-        columns = np/rows;
-        numFiles = columns/1024;
-        if (rem(np,rows) || rem(columns,1024)), error('Invalid image size (%dx%d)!', columns, rows); end
-        dcmData = reshape(dcmInfo.Private_7fe1_1010,[],numFiles)';
-        % encoded DICOM format: columns = 1024*numFiles
-        %                       first row: uint32 datalen, uint32 filenamelen, char[filenamelen] filename
-        %                       remaining rows: char[datalen] data
-        foundECG  = 0;
-        foundRESP = 0;
-        foundPULS = 0;
-        foundEXT  = 0;
-        [~,~,endian] = computer;
-        needswap = ~strcmp(endian,'L');
-        for idx=1:numFiles
-            datalen = typecast(dcmData(idx,1:4),'uint32');
-            if needswap, datalen = swapbytes(datalen); end
-            filenamelen = typecast(dcmData(idx,5:8),'uint32');
-            if needswap, filenamelen = swapbytes(filenamelen); end
-            filename = char(dcmData(idx,9:9+filenamelen-1));
-            logData = dcmData(idx,1025:1025+datalen-1);
-            fprintf('  Decoded: %s\n', filename);
-            if (strcmp(filename(end-9+1:end),'_Info.log'))
-                fnINFO = logData;
-            elseif (strcmp(filename(end-8+1:end),'_ECG.log'))
-                fnECG  = logData;
-                foundECG = 1;
-            elseif (strcmp(filename(end-9+1:end),'_RESP.log'))
-                fnRESP = logData;
-                foundRESP = 1;
-            elseif (strcmp(filename(end-9+1:end),'_PULS.log'))
-                fnPULS = logData;
-                foundPULS = 1;
-            elseif (strcmp(filename(end-8+1:end),'_EXT.log'))
-                fnEXT = logData;
-                foundEXT = 1;
-            end
-        end
-        fprintf('\n');
+    if (isempty(dcmInfo)), error('%s could not be read as a valid DICOM format file!', fn); end
+    
+    % all versions for VE-line store data in Private_7fe1_10xx_Creator
+    if (isfield(dcmInfo,'ImageType') && strcmp(dcmInfo.ImageType,'ORIGINAL\PRIMARY\RAWDATA\PHYSIO') ...
+        && isfield(dcmInfo,'Private_7fe1_10xx_Creator') && strcmp(deblank(char(dcmInfo.Private_7fe1_10xx_Creator)),'SIEMENS CSA NON-IMAGE'))
+        pdata = dcmInfo.Private_7fe1_1010;
+
+    % case 2: up until R017pre6, XA-line ImageType field is wrong, stores in SpectroscopyData
+    elseif (isfield(dcmInfo,'ImageType') && strcmp(dcmInfo.ImageType,'ORIGINAL\PRIMARY\RAWDATA\NONE') ... % XA30 bug
+        && isfield(dcmInfo,'SpectroscopyData'))
+        pdata = typecast(dcmInfo.SpectroscopyData, 'uint8');
+
     else
-        error('%s is not a valid DICOM format file!', fn);
+        error('could not find physio data in %s (DICOM format)!', fn);
     end
+    
+    % read in the data
+    np = size(pdata,1);
+    rows = dcmInfo.AcquisitionNumber;
+    columns = np/rows;
+    numFiles = columns/1024;
+    if (rem(np,rows) || rem(columns,1024)), error('Invalid image size (%dx%d)!', columns, rows); end
+    dcmData = reshape(pdata,[],numFiles)';
+    % encoded DICOM format: columns = 1024*numFiles
+    %                       first row: uint32 datalen, uint32 filenamelen, char[filenamelen] filename
+    %                       remaining rows: char[datalen] data
+    foundECG  = 0;
+    foundRESP = 0;
+    foundPULS = 0;
+    foundEXT  = 0;
+    [~,~,endian] = computer;
+    needswap = ~strcmp(endian,'L');
+    for idx=1:numFiles
+        datalen = typecast(dcmData(idx,1:4),'uint32');
+        if needswap, datalen = swapbytes(datalen); end
+        filenamelen = typecast(dcmData(idx,5:8),'uint32');
+        if needswap, filenamelen = swapbytes(filenamelen); end
+        filename = char(dcmData(idx,9:9+filenamelen-1));
+        logData = dcmData(idx,1025:1025+datalen-1);
+        fprintf('  Decoded: %s\n', filename);
+        if (strcmp(filename(end-9+1:end),'_Info.log'))
+            fnINFO = logData;
+        elseif (strcmp(filename(end-8+1:end),'_ECG.log'))
+            fnECG  = logData;
+            foundECG = 1;
+        elseif (strcmp(filename(end-9+1:end),'_RESP.log'))
+            fnRESP = logData;
+            foundRESP = 1;
+        elseif (strcmp(filename(end-9+1:end),'_PULS.log'))
+            fnPULS = logData;
+            foundPULS = 1;
+        elseif (strcmp(filename(end-8+1:end),'_EXT.log'))
+            fnEXT = logData;
+            foundEXT = 1;
+        end
+        if ~isempty(outpath)
+            outfn = fullfile(outpath, filename);
+            fprintf('  Writing: %s\n', outfn);
+            fp = fopen(outfn,'w');
+            fwrite(fp, char(logData));
+            fclose(fp);
+        end
+    end
+    fprintf('\n');
     
 % if we don't have an encoded DICOM, check what text log files we have
 else
+    if ~isempty(outpath)
+        usage;
+        error('Invalid syntax for text log file import!');
+    end
+
     fnINFO = [fn '_Info.log'];
     fnECG  = [fn '_ECG.log'];
     fnRESP = [fn '_RESP.log'];
@@ -134,7 +170,8 @@ else
 end
 
 if (~foundECG && ~foundRESP && ~foundPULS && ~foundEXT)
-    error('No data files (ECG/RESP/PULS/EXT) found!');
+    warning('No data files (ECG/RESP/PULS/EXT) found!');
+    fprintf('\n');
 end
 
 % read in the data
@@ -219,7 +256,7 @@ if (show_plot)
     if (isfield(physio,'PULS')), [miny, maxy] = plot_trace(physio.PULS(start_tick:end_tick), miny, maxy, 'r', false); end
     if (isfield(physio,'EXT' )), [miny, maxy] = plot_trace(physio.EXT (start_tick:end_tick), miny, maxy, 'c', true);  end
     if (isfield(physio,'EXT2')), [miny, maxy] = plot_trace(physio.EXT2(start_tick:end_tick), miny, maxy, 'g', true);  end
-    plot_trace(physio.ACQ(start_tick:end_tick), miny, maxy, 'k', true);
+    [miny, maxy] = plot_trace(physio.ACQ(start_tick:end_tick), miny, maxy, 'k', true);
     axis([1 double(min(display_max, ActualSamples)) miny-maxy*0.05 maxy+maxy*0.05]);
 end
 
@@ -257,7 +294,7 @@ for curline=1:numlines
     % strip any comments
     if (strfind(line, '#') > 1), line = strtrim(line(1:ctest-1)); end
 
-    if (strfind(line, '='))
+    if (contains(line, '='))
         % this is an assigned value; parse it
         varcell = textscan(line, '%s=%s');
         varname = strtrim(varcell{1});
@@ -401,7 +438,7 @@ function [lines, numlines] = mgetl(arr)
 arr = char(arr);
 if (size(arr,1) > size(arr,2)), arr = arr'; end
 arr_len = length(arr);
-lf = strfind(arr, char(10));
+lf = strfind(arr, newline);
 numlines = length(lf);
 if (lf(numlines) < arr_len)
     numlines = numlines + 1;
@@ -436,3 +473,13 @@ if (scale && ((miny ~= oldminy) || (maxy ~= oldmaxy)))
     trace = trace - min(trace) + newminy;
 end
 plot(trace,'Color',color);
+
+%--------------------------------------------------------------------------
+
+function usage
+% display command syntax
+
+fprintf(['Usage #1 (individual .log files):' ...
+         '\n   physio = readCMRRPhysio(base_filename, [show_plot])' ...
+         '\nUsage #2 (single encoded DICOM file):' ...
+         '\n   physio = readCMRRPhysio(DICOM_filename, [show_plot, [output_path]])\n\n']);
