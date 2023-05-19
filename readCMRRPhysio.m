@@ -51,7 +51,7 @@ function physio = readCMRRPhysio(varargin)
 %        physio.EXT2: [total scan time x 1] array
 %            value = 1 if EXT2 signal detected; 0 if not
 
-VersionString = '2023.05.13';
+VersionString = '2023.05.19';
 
 % this is the file format this function expects; must match log file version
 ExpectedVersion = 'EJA_1';
