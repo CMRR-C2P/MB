@@ -294,132 +294,133 @@ for curline=1:numlines
     % strip any comments
     if (strfind(line, '#') > 1), line = strtrim(line(1:ctest-1)); end
 
-    if (contains(line, '='))
-        % this is an assigned value; parse it
-        varcell = textscan(line, '%s=%s');
-        varname = strtrim(varcell{1});
-        value   = strtrim(varcell{2});
-        
-        if (strcmp(varname, 'UUID')), varargout{1} = value; end
-        %if (strcmp(varname, 'ScanDate')), ScanDate = value; end
-        if (strcmp(varname, 'LogVersion'))
-            if (~strcmp(value, ExpectedVersion))
-                error('File format [%s] not supported by this function (expected [%s]).', value, ExpectedVersion);
+    if (~isempty(line))
+        if (contains(line, '='))
+            % this is an assigned value; parse it
+            varcell = textscan(line, '%s=%s');
+            varname = strtrim(varcell{1});
+            value   = strtrim(varcell{2});
+            
+            if (strcmp(varname, 'UUID')), varargout{1} = value; end
+            %if (strcmp(varname, 'ScanDate')), ScanDate = value; end
+            if (strcmp(varname, 'LogVersion'))
+                if (~strcmp(value, ExpectedVersion))
+                    error('File format [%s] not supported by this function (expected [%s]).', value, ExpectedVersion);
+                end
             end
-        end
-        if (strcmp(varname, 'LogDataType'))
-            if (~strcmp(value, LogDataType))
-                error('Expected [%s] data, found [%s]? Check filenames?', LogDataType, value);
+            if (strcmp(varname, 'LogDataType'))
+                if (~strcmp(value, LogDataType))
+                    error('Expected [%s] data, found [%s]? Check filenames?', LogDataType, value);
+                end
             end
-        end
-        if (strcmp(varname, 'SampleTime'))
-            if (strcmp(LogDataType, 'ACQUISITION_INFO'))
-                error('Invalid [%s] parameter found.',varname);
+            if (strcmp(varname, 'SampleTime'))
+                if (strcmp(LogDataType, 'ACQUISITION_INFO'))
+                    error('Invalid [%s] parameter found.',varname);
+                end
+                SampleTime = uint16(str2double(value));
             end
-            SampleTime = uint16(str2double(value));
-        end
-        if (strcmp(varname, 'NumSlices'))
-            if (~strcmp(LogDataType, 'ACQUISITION_INFO'))
-                error('Invalid [%s] parameter found.',varname);
+            if (strcmp(varname, 'NumSlices'))
+                if (~strcmp(LogDataType, 'ACQUISITION_INFO'))
+                    error('Invalid [%s] parameter found.',varname);
+                end
+                NumSlices = uint16(str2double(value));
+                varargout{2} = NumSlices;
             end
-            NumSlices = uint16(str2double(value));
-            varargout{2} = NumSlices;
-        end
-        if (strcmp(varname, 'NumVolumes'))
-            if (~strcmp(LogDataType, 'ACQUISITION_INFO'))
-                error('Invalid [%s] parameter found.',varname);
+            if (strcmp(varname, 'NumVolumes'))
+                if (~strcmp(LogDataType, 'ACQUISITION_INFO'))
+                    error('Invalid [%s] parameter found.',varname);
+                end
+                NumVolumes = uint16(str2double(value));
+                varargout{3} = NumVolumes;
             end
-            NumVolumes = uint16(str2double(value));
-            varargout{3} = NumVolumes;
-        end
-        if (strcmp(varname, 'FirstTime'))
-            if (~strcmp(LogDataType, 'ACQUISITION_INFO'))
-                error('Invalid [%s] parameter found.',varname);
+            if (strcmp(varname, 'FirstTime'))
+                if (~strcmp(LogDataType, 'ACQUISITION_INFO'))
+                    error('Invalid [%s] parameter found.',varname);
+                end
+                FirstTime = uint32(str2double(value));
+                varargout{4} = FirstTime;
             end
-            FirstTime = uint32(str2double(value));
-            varargout{4} = FirstTime;
-        end
-        if (strcmp(varname, 'LastTime'))
-            if (~strcmp(LogDataType, 'ACQUISITION_INFO'))
-                error('Invalid [%s] parameter found.',varname);
+            if (strcmp(varname, 'LastTime'))
+                if (~strcmp(LogDataType, 'ACQUISITION_INFO'))
+                    error('Invalid [%s] parameter found.',varname);
+                end
+                varargout{5} = uint32(str2double(value));
             end
-            varargout{5} = uint32(str2double(value));
-        end
-        if (strcmp(varname, 'NumEchoes'))
-            if (~strcmp(LogDataType, 'ACQUISITION_INFO'))
-                error('Invalid [%s] parameter found.',varname);
+            if (strcmp(varname, 'NumEchoes'))
+                if (~strcmp(LogDataType, 'ACQUISITION_INFO'))
+                    error('Invalid [%s] parameter found.',varname);
+                end
+                NumEchoes = uint16(str2double(value));
+                varargout{6} = NumEchoes;
             end
-            NumEchoes = uint16(str2double(value));
-            varargout{6} = NumEchoes;
-        end
-        
-    elseif (~isempty(line))
-        % this must be data; currently it is 3-5 columns so we can
-        % parse it easily with textscan
-        datacells = textscan(line, '%s %s %s %s %s');
-
-        if (~isstrprop(datacells{1}{1}(1), 'digit'))
-            % if the first column isn't numeric, it is probably the header
         else
-            % store data in output array based on the file type
-            if (strcmp(LogDataType, 'ACQUISITION_INFO'))
-                if ( (1 ~= exist('NumVolumes', 'var')) || (NumVolumes < 1) || ...
-                     (1 ~= exist('NumSlices' , 'var')) || (NumSlices  < 1) || ...
-                     (1 ~= exist('NumEchoes' , 'var')) || (NumEchoes  < 1) )
-                    error('Failed reading ACQINFO header!');
-                end
-                if (NumVolumes == 1)
-                    % this is probably R016a or earlier diffusion data, where NumVolumes is 1 (incorrect)
-                    NumVolumes = (numlines-11)/(NumSlices*NumEchoes);
-                    warning('Found NumVolumes=1; correcting to %d for R016a and earlier diffusion data!', NumVolumes);
-                end
-                if (isempty(arr)), arr = zeros(2,NumVolumes,NumSlices,NumEchoes,'uint32'); end
-                curvol    = uint16(str2double(datacells{1}{1})) + 1;
-                curslc    = uint16(str2double(datacells{2}{1})) + 1;
-                curstart  = uint32(str2double(datacells{3}{1}));
-                curfinish = uint32(str2double(datacells{4}{1}));
-                if (size(datacells{5},1))
-                    cureco = uint16(str2double(datacells{5}{1})) + 1;
-                    if (arr(:,curvol,curslc,cureco)), error('Received duplicate timing data for vol%d slc%d eco%d!', curvol, curslc, cureco); end
-                else
-                    cureco = uint16(0) + 1;
-                    if (arr(:,curvol,curslc,cureco)), warning('Received duplicate timing data for vol%d slc%d (ignore for pre-R015a multi-echo data)!', curvol, curslc); end
-                end
-                arr(:,curvol,curslc,cureco) = [curstart curfinish]; %#ok<AGROW>
+            % this must be data; currently it is 3-5 columns so we can
+            % parse it easily with textscan
+            datacells = textscan(line, '%s %s %s %s %s');
+            
+            if (~isstrprop(datacells{1}{1}(1), 'digit'))
+                % if the first column isn't numeric, it is probably the header
             else
-                curstart   = uint32(str2double(datacells{1}{1})) - FirstTime + 1;
-                curchannel = datacells{2}{1};
-                curvalue   = uint16(str2double(datacells{3}{1}));
-                %curtrigger = datacells{4}{1};
-
-                if (strcmp(LogDataType, 'ECG'))
-                    if (isempty(arr)), arr = zeros(ExpectedSamples,4,'uint16'); end
-                    if (strcmp(curchannel, 'ECG1'))
-                        chaidx = 1;
-                    elseif (strcmp(curchannel, 'ECG2'))
-                        chaidx = 2;
-                    elseif (strcmp(curchannel, 'ECG3'))
-                        chaidx = 3;
-                    elseif (strcmp(curchannel, 'ECG4'))
-                        chaidx = 4;
-                    else
-                        error('Invalid ECG channel ID [%s]', curchannel);
+                % store data in output array based on the file type
+                if (strcmp(LogDataType, 'ACQUISITION_INFO'))
+                    if ( (1 ~= exist('NumVolumes', 'var')) || (NumVolumes < 1) || ...
+                            (1 ~= exist('NumSlices' , 'var')) || (NumSlices  < 1) || ...
+                            (1 ~= exist('NumEchoes' , 'var')) || (NumEchoes  < 1) )
+                        error('Failed reading ACQINFO header!');
                     end
-                elseif (strcmp(LogDataType, 'EXT'))
-                    if (isempty(arr)), arr = zeros(ExpectedSamples,2,'uint16'); end
-                    if (strcmp(curchannel, 'EXT'))
-                        chaidx = 1;
-                    elseif (strcmp(curchannel, 'EXT2'))
-                        chaidx = 2;
-                    else
-                        error('Invalid EXT channel ID [%s]', curchannel);
+                    if (NumVolumes == 1)
+                        % this is probably R016a or earlier diffusion data, where NumVolumes is 1 (incorrect)
+                        NumVolumes = (numlines-11)/(NumSlices*NumEchoes);
+                        warning('Found NumVolumes=1; correcting to %d for R016a and earlier diffusion data!', NumVolumes);
                     end
+                    if (isempty(arr)), arr = zeros(2,NumVolumes,NumSlices,NumEchoes,'uint32'); end
+                    curvol    = uint16(str2double(datacells{1}{1})) + 1;
+                    curslc    = uint16(str2double(datacells{2}{1})) + 1;
+                    curstart  = uint32(str2double(datacells{3}{1}));
+                    curfinish = uint32(str2double(datacells{4}{1}));
+                    if (size(datacells{5},1))
+                        cureco = uint16(str2double(datacells{5}{1})) + 1;
+                        if (arr(:,curvol,curslc,cureco)), error('Received duplicate timing data for vol%d slc%d eco%d!', curvol, curslc, cureco); end
+                    else
+                        cureco = uint16(0) + 1;
+                        if (arr(:,curvol,curslc,cureco)), warning('Received duplicate timing data for vol%d slc%d (ignore for pre-R015a multi-echo data)!', curvol, curslc); end
+                    end
+                    arr(:,curvol,curslc,cureco) = [curstart curfinish]; %#ok<AGROW>
                 else
-                    if (isempty(arr)), arr = zeros(ExpectedSamples,1,'uint16'); end
-                    chaidx = 1;
+                    curstart   = uint32(str2double(datacells{1}{1})) - FirstTime + 1;
+                    curchannel = datacells{2}{1};
+                    curvalue   = uint16(str2double(datacells{3}{1}));
+                    %curtrigger = datacells{4}{1};
+                    
+                    if (strcmp(LogDataType, 'ECG'))
+                        if (isempty(arr)), arr = zeros(ExpectedSamples,4,'uint16'); end
+                        if (strcmp(curchannel, 'ECG1'))
+                            chaidx = 1;
+                        elseif (strcmp(curchannel, 'ECG2'))
+                            chaidx = 2;
+                        elseif (strcmp(curchannel, 'ECG3'))
+                            chaidx = 3;
+                        elseif (strcmp(curchannel, 'ECG4'))
+                            chaidx = 4;
+                        else
+                            error('Invalid ECG channel ID [%s]', curchannel);
+                        end
+                    elseif (strcmp(LogDataType, 'EXT'))
+                        if (isempty(arr)), arr = zeros(ExpectedSamples,2,'uint16'); end
+                        if (strcmp(curchannel, 'EXT'))
+                            chaidx = 1;
+                        elseif (strcmp(curchannel, 'EXT2'))
+                            chaidx = 2;
+                        else
+                            error('Invalid EXT channel ID [%s]', curchannel);
+                        end
+                    else
+                        if (isempty(arr)), arr = zeros(ExpectedSamples,1,'uint16'); end
+                        chaidx = 1;
+                    end
+                    
+                    arr(curstart:curstart+uint32(SampleTime-1),chaidx) = curvalue*ones(SampleTime,1,'uint16'); %#ok<AGROW>
                 end
-                
-                arr(curstart:curstart+uint32(SampleTime-1),chaidx) = curvalue*ones(SampleTime,1,'uint16'); %#ok<AGROW>
             end
         end
     end
