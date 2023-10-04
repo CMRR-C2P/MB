@@ -97,6 +97,12 @@ if (2 == exist(fn,'file'))
         && isfield(dcmInfo,'SpectroscopyData'))
         pdata = typecast(dcmInfo.SpectroscopyData, 'uint8');
 
+
+    % case 3: R017pre7 and newer, XA-line ImageType field is wrong, but stored in Private_7fe1_10xx_Creator again
+    elseif (isfield(dcmInfo,'ImageType') && strcmp(dcmInfo.ImageType,'ORIGINAL\PRIMARY\RAWDATA\NONE') ...
+        && isfield(dcmInfo,'Private_7fe1_10xx_Creator') && strcmp(deblank(char(dcmInfo.Private_7fe1_10xx_Creator)),'SIEMENS MR IMA'))
+        pdata = dcmInfo.Private_7fe1_1010;
+
     else
         error('could not find physio data in %s (DICOM format)!', fn);
     end
