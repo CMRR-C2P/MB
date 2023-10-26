@@ -1,0 +1,4 @@
+coloredlogs
+numpy
+matplotlib
+pydicom
