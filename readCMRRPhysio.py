@@ -207,7 +207,7 @@ def plotphysio(physio:dict, showsamples: int=1000):
         trace    = physio[logdatatype][starttick:endtick]
         mintrace = int(min(trace))      # type(ACQ)==bool
         maxtrace = int(max(trace))
-        if scale and (miny != mintrace or maxy != maxtrace):
+        if scale and (miny != mintrace or maxy != maxtrace) and mintrace != maxtrace:
             trace = (trace - mintrace) * (maxy - miny)/(maxtrace - mintrace) + miny
         else:
             miny = min(miny, mintrace)  # Update the (non-local) minimum
