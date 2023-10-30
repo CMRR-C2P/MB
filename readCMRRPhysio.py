@@ -415,7 +415,7 @@ def main():
                                             '  readCMRRPhysio.py -s 2000 /project/3022026.01/sub-001/Physio_20200428_142451_007e910e-02d9-4d7a-8fdb-8e3568be8322\n ')
     parser.add_argument('filename',           help="Either the fullpath of the DICOM file or the basename of the PHYSIO logfiles (fullpath without suffix and file extension, e.g. 'foo/bar/Physio_DATE_TIME_UUID'")
     parser.add_argument('-s','--showsamples', help='The nr of plotted samples of the physiological traces (default: 1000, nothing is plotted if 0)', default=1000, type=int)
-    parser.add_argument('-o','--outputdir',   help='If the input is in DICOM format and the output path is specified, then the extracted log data will be written to disk')
+    parser.add_argument('-o','--outputpath',  help='If the input is in DICOM format and the output path is specified, then the extracted log data will be written to disk')
     args = parser.parse_args()
 
     readCMRRPhysio(fn=args.filename, showsamples=args.showsamples, outputpath=args.outputpath)
