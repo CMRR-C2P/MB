@@ -1,4 +1,4 @@
-function physio = readCMRRPhysio(varargin)
+function varargout = readCMRRPhysio(varargin)
 % -------------------------------------------------------------------------
 % readCMRRPhysio.m
 % -------------------------------------------------------------------------
@@ -51,7 +51,7 @@ function physio = readCMRRPhysio(varargin)
 %        physio.EXT2: [total scan time x 1] array
 %            value = 1 if EXT2 signal detected; 0 if not
 
-VersionString = '2023.10.17';
+VersionString = '2023.11.09';
 
 % this is the file format this function expects; must match log file version
 ExpectedVersion = 'EJA_1';
@@ -60,19 +60,34 @@ ExpectedVersion = 'EJA_1';
 fprintf('\nreadCMRRPhysio version %s: E. Auerbach, CMRR\n\n', VersionString);
 
 % check input arguments
+show_plot = 0;
+outpath = [];
 if (nargin < 1) || (nargin > 3)
     usage;
     error('Invalid number of inputs.');
 end
 fn = varargin{1};
-if (nargin >= 2)
+if (nargin == 2)
+    test_var = varargin{2};
+    if isnumeric(test_var)
+        show_plot = test_var;
+    else
+        outpath = test_var;
+    end
+elseif (nargin == 3)
     show_plot = varargin{2};
-else
-    show_plot = 0;
-end
-outpath = [];
-if (nargin == 3)
     outpath = varargin{3};
+end
+if (~isempty(outpath) && (exist(outpath, 'dir') ~= 7))
+    error('Could not locate requested output path: %s', outpath);
+end
+
+if (nargout > 1)
+    usage;
+    error('Invalid number of outputs.');
+elseif (~nargout && isempty(outpath) && ~show_plot)
+    usage;
+    error('Nothing to do!');
 end
 
 % first, check if the base is pointing to a DICOM we should extract
@@ -181,6 +196,9 @@ if (~foundECG && ~foundRESP && ~foundPULS && ~foundEXT)
     fprintf('\n');
 end
 
+% if we wrote the log files and are not plotting or returning the parsed data, we are done
+if (~isempty(outpath) && ~show_plot && ~nargout), return; end
+
 % read in the data
 [SliceMap, UUID1, NumSlices, NumVolumes, FirstTime, LastTime, NumEchoes] = readParseFile(fnINFO, 'ACQUISITION_INFO', ExpectedVersion, 0, 0);
 if (LastTime <= FirstTime), error('Last timestamp is not greater than first timestamp, aborting...'); end
@@ -265,6 +283,10 @@ if (show_plot)
     if (isfield(physio,'EXT2')), [miny, maxy] = plot_trace(physio.EXT2(start_tick:end_tick), miny, maxy, 'g', true);  end
     [miny, maxy] = plot_trace(physio.ACQ(start_tick:end_tick), miny, maxy, 'k', true);
     axis([1 double(min(display_max, ActualSamples)) miny-maxy*0.05 maxy+maxy*0.05]);
+end
+
+if (nargout)
+    varargout{1} = physio;
 end
 
 %--------------------------------------------------------------------------
