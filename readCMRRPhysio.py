@@ -279,7 +279,7 @@ def readCMRRPhysio(fn: Union[str,Path], showsamples: int=0, outputpath: str='') 
            (dicomdata.get('ImageType')==['ORIGINAL','PRIMARY','RAWDATA',  'NONE'] and dicomdata.get('SpectroscopyData')) or \
            (dicomdata.get('ImageType') in (['ORIGINAL','PRIMARY','RAWDATA','NONE'], ['ORIGINAL','PRIMARY','OTHER','NONE']) and dicomdata.get(physiotag).private_creator=='SIEMENS MR IMA'):
             if dicomdata.get('SpectroscopyData'):
-                physiodata = struct.unpack('<B', dicomdata['SpectroscopyData'].value)[0]
+                physiodata = dicomdata['SpectroscopyData'].value    # XA30-bug. NB: The original Matlab code casts this to uint8 (i.e. to struct.unpack('<'+len(physiodata)*'B', physiodata)
             else:
                 physiodata = dicomdata[physiotag].value
             rows    = int(dicomdata.AcquisitionNumber)
@@ -314,7 +314,7 @@ def readCMRRPhysio(fn: Union[str,Path], showsamples: int=0, outputpath: str='') 
                 if outputpath:
                     outputfile = Path(outputpath)/filename
                     LOGGER.info(f"Writing physio data to: {outputfile}")
-                    outputfile.write_text(str(logdata))
+                    outputfile.write_text(logdata.decode('UTF-8'))
         else:
             LOGGER.error(f"{fn} is not a valid DICOM format file"); raise RuntimeError
 
