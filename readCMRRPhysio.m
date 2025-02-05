@@ -69,7 +69,7 @@ end
 fn = varargin{1};
 if (nargin == 2)
     test_var = varargin{2};
-    if isnumeric(test_var)
+    if (isnumeric(test_var) || islogical(test_var))
         show_plot = test_var;
     else
         outpath = test_var;
@@ -316,12 +316,22 @@ varargout{6} = NumEchoes;
 
 arr = [];
 
+% loop through and clean up
 for curline=1:numlines
     line = lines{curline};
+    
+    % strip whitespace
     if (~isempty(line)), line = strtrim(line); end
 
     % strip any comments
     if (strfind(line, '#') > 1), line = strtrim(line(1:ctest-1)); end
+    
+    lines{curline} = line;
+end
+
+% now loop through find all the header entries, which since XA61 can also be at the end of the file
+for curline=1:numlines
+    line = lines{curline};
 
     if (~isempty(line))
         if (contains(line, '='))
@@ -382,7 +392,16 @@ for curline=1:numlines
                 NumEchoes = uint16(str2double(value));
                 varargout{6} = NumEchoes;
             end
-        else
+        end
+    end
+end
+
+% finally find and parse the data
+for curline=1:numlines
+    line = lines{curline};
+
+    if (~isempty(line))
+        if (~contains(line, '='))
             % this must be data; currently it is 3-5 columns so we can
             % parse it easily with textscan
             datacells = textscan(line, '%s %s %s %s %s');
