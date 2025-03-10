@@ -324,7 +324,8 @@ for curline=1:numlines
     if (~isempty(line)), line = strtrim(line); end
 
     % strip any comments
-    if (strfind(line, '#') > 1), line = strtrim(line(1:ctest-1)); end
+    ctest = strfind(line, '#');
+    if (~isempty(ctest)), line = strtrim(line(1:ctest-1)); end
     
     lines{curline} = line;
 end
