@@ -150,15 +150,19 @@ if (2 == exist(fn,'file'))
         if (strcmp(filename(end-9+1:end),'_Info.log'))
             fnINFO = logData;
         elseif (strcmp(filename(end-8+1:end),'_ECG.log'))
+            logData = ensure_SampleTime_on_top(logData);
             fnECG  = logData;
             foundECG = 1;
         elseif (strcmp(filename(end-9+1:end),'_RESP.log'))
+            logData = ensure_SampleTime_on_top(logData);
             fnRESP = logData;
             foundRESP = 1;
         elseif (strcmp(filename(end-9+1:end),'_PULS.log'))
+            logData = ensure_SampleTime_on_top(logData);
             fnPULS = logData;
             foundPULS = 1;
         elseif (strcmp(filename(end-8+1:end),'_EXT.log'))
+            logData = ensure_SampleTime_on_top(logData);
             fnEXT = logData;
             foundEXT = 1;
         end
@@ -533,3 +537,49 @@ fprintf(['Usage #1 (individual .log files):' ...
          '\n   physio = readCMRRPhysio(base_filename, [show_plot])' ...
          '\nUsage #2 (single encoded DICOM file):' ...
          '\n   physio = readCMRRPhysio(DICOM_filename, [show_plot, [output_path]])\n\n']);
+
+%--------------------------------------------------------------------------
+
+function logData_out = ensure_SampleTime_on_top(logData_in)
+% Ensures the 'SampleTime' header line is on the top of the data
+% Since R017pre11, the SampleTime header line can be on the bottom of the sample points
+
+logData_out = logData_in;
+
+% convert to cellstring for easy line-by-line analysis
+lines = strsplit(char(logData_in),'\n','CollapseDelimiters',false)';
+
+is_header_line     = ~cellfun( 'isempty', strfind(lines, '=')         );
+is_SampleTime_line = ~cellfun( 'isempty', strfind(lines, 'SampleTime'));
+SampleTime_line_idx = find(is_SampleTime_line);
+
+% count header lines, assuming  line 1 is a header line
+n_header_lines = 0;
+for idx = 1 : length(lines)
+    if is_header_line(idx)
+        n_header_lines = n_header_lines + 1;
+    else
+        break
+    end
+end
+
+if SampleTime_line_idx > n_header_lines
+
+    % perform the line swap
+    new_lines = [
+        lines(1:n_header_lines);
+        lines(SampleTime_line_idx);
+        lines(n_header_lines+1:SampleTime_line_idx-1);
+        lines(SampleTime_line_idx+1:end)
+        ];
+
+    % only need one last empty line
+    if isempty(new_lines{end-1}) && isempty(new_lines{end})
+        new_lines(end) = [];
+    end
+
+    % back to unit8 vector
+    logData_out = strjoin(new_lines, '\n');
+    logData_out = uint8(logData_out);
+
+end
