@@ -3,7 +3,7 @@ function varargout = readCMRRPhysio(varargin)
 % readCMRRPhysio.m
 % -------------------------------------------------------------------------
 % Read physiological log files from CMRR MB sequences (>=R013, >=VD13A)
-%   E. Auerbach, CMRR, 2015-2023
+%   E. Auerbach, CMRR, 2015-2026
 %
 % Usage #1 (individual .log files):
 %    physio = readCMRRPhysio(base_filename, [show_plot]);
@@ -148,29 +148,26 @@ if (2 == exist(fn,'file'))
         logData = dcmData(idx,1025:1025+datalen-1);
         fprintf('  Decoded: %s\n', filename);
         if (strcmp(filename(end-9+1:end),'_Info.log'))
-            fnINFO = logData;
+            fnINFO.fn   = filename;
+            fnINFO.data = logData;
         elseif (strcmp(filename(end-8+1:end),'_ECG.log'))
-            fnECG  = logData;
+            fnECG.fn   = filename;
+            fnECG.data = logData;
             foundECG = 1;
         elseif (strcmp(filename(end-9+1:end),'_RESP.log'))
-            fnRESP = logData;
+            fnRESP.fn   = filename;
+            fnRESP.data = logData;
             foundRESP = 1;
         elseif (strcmp(filename(end-9+1:end),'_PULS.log'))
-            fnPULS = logData;
+            fnPULS.fn   = filename;
+            fnPULS.data = logData;
             foundPULS = 1;
         elseif (strcmp(filename(end-8+1:end),'_EXT.log'))
-            fnEXT = logData;
+            fnEXT.fn   = filename;
+            fnEXT.data = logData;
             foundEXT = 1;
         end
-        if ~isempty(outpath)
-            outfn = fullfile(outpath, filename);
-            fprintf('  Writing: %s\n', outfn);
-            fp = fopen(outfn,'w');
-            fwrite(fp, char(logData));
-            fclose(fp);
-        end
     end
-    fprintf('\n');
     
 % if we don't have an encoded DICOM, check what text log files we have
 else
@@ -179,11 +176,11 @@ else
         error('Invalid syntax for text log file import!');
     end
 
-    fnINFO = [fn '_Info.log'];
-    fnECG  = [fn '_ECG.log'];
-    fnRESP = [fn '_RESP.log'];
-    fnPULS = [fn '_PULS.log'];
-    fnEXT  = [fn '_EXT.log'];
+    fnINFO.fn = [fn '_Info.log'];
+    fnECG.fn  = [fn '_ECG.log'];
+    fnRESP.fn = [fn '_RESP.log'];
+    fnPULS.fn = [fn '_PULS.log'];
+    fnEXT.fn  = [fn '_EXT.log'];
     if (2 ~= exist(fnINFO, 'file')), error('%s not found!', fnINFO); end
     foundECG  = (2 == exist(fnECG , 'file'));
     foundRESP = (2 == exist(fnRESP, 'file'));
@@ -193,11 +190,7 @@ end
 
 if (~foundECG && ~foundRESP && ~foundPULS && ~foundEXT)
     warning('No data files (ECG/RESP/PULS/EXT) found!');
-    fprintf('\n');
 end
-
-% if we wrote the log files and are not plotting or returning the parsed data, we are done
-if (~isempty(outpath) && ~show_plot && ~nargout), return; end
 
 % read in the data
 [SliceMap, UUID1, NumSlices, NumVolumes, FirstTime, LastTime, NumEchoes] = readParseFile(fnINFO, 'ACQUISITION_INFO', ExpectedVersion, 0, 0);
@@ -224,6 +217,19 @@ if (foundEXT)
     [EXT, UUID5] = readParseFile(fnEXT, 'EXT', ExpectedVersion, FirstTime, ExpectedSamples);
     if (~strcmp(UUID1, UUID5)), error('UUID mismatch between Info and EXT files!'); end
 end
+
+% write log files if requested
+if ~isempty(outpath)
+    fprintf('Writing log files...\n');
+    write_log_file(fnINFO, outpath)
+    if (foundECG),  write_log_file(fnECG,  outpath); end
+    if (foundRESP), write_log_file(fnRESP, outpath); end
+    if (foundPULS), write_log_file(fnPULS, outpath); end
+    if (foundEXT),  write_log_file(fnEXT,  outpath); end
+end
+
+% if we wrote the log files and are not plotting or returning the parsed data, we are done
+if (~isempty(outpath) && ~show_plot && ~nargout), return; end
 
 fprintf('Formatting data...\n');
 ACQ = zeros(ExpectedSamples,1,'uint16');
@@ -291,17 +297,17 @@ end
 
 %--------------------------------------------------------------------------
 
-function [arr, varargout] = readParseFile(fn, LogDataType, ExpectedVersion, FirstTime, ExpectedSamples)
+function [arr, varargout] = readParseFile(fnIN, LogDataType, ExpectedVersion, FirstTime, ExpectedSamples)
 % read and parse log file
 
-if (isa(fn,'uint8'))
-    % if fn is uint8, we read it directly from DICOM
+if (isfield(fnIN,'data'))
+    % if data field exists, we already read it directly from DICOM; convert uint8 to char
     fprintf('Parsing %s data...\n', LogDataType);
-    inData = char(fn);
+    inData = char(fnIN.data);
 else
-    % otherwise, fn is a filename
+    % otherwise, read from file
     fprintf('Reading %s file...\n', LogDataType);
-    fp = fopen(fn);
+    fp = fopen(fnIN.fn);
     inData = fread(fp, Inf, '*char');
     fclose(fp);
 end
@@ -523,6 +529,17 @@ if (scale && ((miny ~= oldminy) || (maxy ~= oldmaxy)))
     trace = trace - min(trace) + newminy;
 end
 plot(trace,'Color',color);
+
+%--------------------------------------------------------------------------
+
+function write_log_file(fnIN, outpath)
+% write log data to file
+
+outfn = fullfile(outpath, fnIN.fn);
+fprintf('  Writing: %s\n', outfn);
+fp = fopen(outfn,'w');
+fwrite(fp, char(fnIN.data));
+fclose(fp);
 
 %--------------------------------------------------------------------------
 
